@@ -15,6 +15,6 @@ public final class RefundCalculator {
     /** The refund for an amount paid, in rupees, rounded to the nearest paisa. */
     public static double refundFor(double paid, boolean early) {
         double refund = paid * (early ? EARLY_REFUND : LATE_REFUND);
-        return (long) (refund * 100) / 100.0;
+        return Math.round(refund * 100.0) / 100.0;
     }
 }

@@ -39,6 +39,7 @@ public class BookingService implements Bookings {
     private final PaymentRepository payments;
     private final EventPublisher events;
     private final Clock clock;
+    private final java.util.concurrent.ConcurrentHashMap<Long, Object> slotLocks = new java.util.concurrent.ConcurrentHashMap<>();
 
     public BookingService(BookingRepository bookings, SlotRepository slots, PaymentGateway gateway,
                           PaymentRepository payments, EventPublisher events, Clock clock) {
@@ -52,34 +53,51 @@ public class BookingService implements Bookings {
 
     @Override
     public BookingResult book(long memberId, long slotId) {
-        Optional<Slot> found = slots.find(slotId);
-        if (found.isEmpty()) {
-            return new BookingResult(Outcome.SLOT_NOT_FOUND, null);
-        }
-        Slot slot = found.get();
-        if (!slot.startsAt().isAfter(clock.instant())) {
-            return new BookingResult(Outcome.SLOT_STARTED, null);
-        }
-        if (bookings.hasConfirmed(memberId, slotId)) {
-            return new BookingResult(Outcome.ALREADY_BOOKED, null);
-        }
-        if (bookings.countConfirmed(slotId) >= slot.capacity()) {
-            return new BookingResult(Outcome.FULL, null);
-        }
+        Object lock = slotLocks.computeIfAbsent(slotId, k -> new Object());
+        synchronized (lock) {
+            Optional<Slot> found = slots.find(slotId);
+            if (found.isEmpty()) {
+                return new BookingResult(Outcome.SLOT_NOT_FOUND, null);
+            }
+            Slot slot = found.get();
+            if (!slot.startsAt().isAfter(clock.instant())) {
+                return new BookingResult(Outcome.SLOT_STARTED, null);
+            }
+            if (bookings.hasConfirmed(memberId, slotId)) {
+                return new BookingResult(Outcome.ALREADY_BOOKED, null);
+            }
+            if (bookings.countConfirmed(slotId) >= slot.capacity()) {
+                return new BookingResult(Outcome.FULL, null);
+            }
 
-        // Take the payment before creating the booking, so nobody holds a seat they have not paid for.
-        // The gateway is flaky in production: if it times out, try once more before giving up.
-        try {
-            gateway.charge(memberId, slot.price());
-        } catch (GatewayTimeoutException e) {
-            log.warn("{}; retrying", e.getMessage());
-            gateway.charge(memberId, slot.price());
-        }
-        long bookingId = bookings.insert(slotId, memberId, slot.price());
-        payments.record(bookingId, "CHARGE", slot.price());
+            // Take the payment before creating the booking, so nobody holds a seat they have not paid for.
+            // The gateway is flaky in production: if it times out, try once more before giving up.
+            try {
+                gateway.charge(memberId, slot.price());
+            } catch (GatewayTimeoutException e) {
+                log.warn("{}; retrying", e.getMessage());
+                gateway.charge(memberId, slot.price());
+            }
 
-        events.publish(new BookingConfirmed(UUID.randomUUID(), bookingId, slotId, memberId, clock.instant()));
-        return new BookingResult(Outcome.BOOKED, bookingId);
+            try {
+                long bookingId = bookings.insert(slotId, memberId, slot.price());
+                payments.record(bookingId, "CHARGE", slot.price());
+
+                events.publish(new BookingConfirmed(UUID.randomUUID(), bookingId, slotId, memberId, clock.instant()));
+                return new BookingResult(Outcome.BOOKED, bookingId);
+            } catch (Exception e) {
+                log.warn("Insert failed after charge for member {} slot {}: {}", memberId, slotId, e.getMessage());
+                try {
+                    gateway.refund(0, slot.price());
+                } catch (Exception re) {
+                    log.error("Failed to refund member {} after failed booking insertion", memberId, re);
+                }
+                if (bookings.hasConfirmed(memberId, slotId)) {
+                    return new BookingResult(Outcome.ALREADY_BOOKED, null);
+                }
+                throw e;
+            }
+        }
     }
 
     @Override

@@ -1,5 +1,6 @@
 package com.slotbook.core.admin;
 
+import com.slotbook.contract.CentreClock;
 import com.slotbook.contract.CurrentMember;
 import com.slotbook.core.config.Db;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -10,7 +11,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.time.YearMonth;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 
@@ -22,10 +22,12 @@ public class AdminController {
 
     private final CurrentMember current;
     private final JdbcClient jdbc;
+    private final CentreClock centre;
 
-    public AdminController(CurrentMember current, JdbcClient jdbc) {
+    public AdminController(CurrentMember current, JdbcClient jdbc, CentreClock centre) {
         this.current = current;
         this.jdbc = jdbc;
+        this.centre = centre;
     }
 
     /** Everyone with a confirmed booking for a slot, in booking order. */
@@ -47,14 +49,16 @@ public class AdminController {
     /** Refunds paid out in a month (?month=2026-10), for reconciling with the payment gateway's report. */
     @GetMapping("/api/admin/reports/refunds")
     public Map<String, Object> refunds(@RequestParam String month) {
-        current.require();
+        current.requireAdmin();
         YearMonth ym = YearMonth.parse(month);
+        Instant from = ym.atDay(1).atStartOfDay(centre.zone()).toInstant();
+        Instant to = ym.plusMonths(1).atDay(1).atStartOfDay(centre.zone()).toInstant();
         List<Double> amounts = jdbc.sql("""
                         select amount from payments
                         where kind = 'REFUND' and created_at >= :from and created_at < :to
                         """)
-                .param("from", ym.atDay(1).atStartOfDay().atOffset(ZoneOffset.UTC))
-                .param("to", ym.plusMonths(1).atDay(1).atStartOfDay().atOffset(ZoneOffset.UTC))
+                .param("from", Db.ts(from))
+                .param("to", Db.ts(to))
                 .query(Double.class)
                 .list();
 
@@ -62,7 +66,7 @@ public class AdminController {
         for (double amount : amounts) {
             total += amount;
         }
-        total = Math.floor(total * 100) / 100;
+        total = Math.round(total * 100.0) / 100.0;
 
         return Map.of("month", month, "refunds", amounts.size(), "total", total);
     }

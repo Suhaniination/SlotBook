@@ -20,7 +20,13 @@ export default function Notifications() {
       {items.map((n) => (
         <div key={n.id} className={`card ${n.read ? 'muted' : ''}`}>
           {n.message}
-          <div className="muted small">{new Date(n.createdAt).toLocaleString('en-IN')}</div>
+          <div className="muted small">{new Date(n.createdAt).toLocaleString('en-IN', {
+            day: 'numeric',
+            month: 'short',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+          })}</div>
         </div>
       ))}
     </div>

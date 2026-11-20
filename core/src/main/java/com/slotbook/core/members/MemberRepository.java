@@ -46,7 +46,7 @@ public class MemberRepository {
 
     public long insert(String name, String email, String passwordHash) {
         GeneratedKeyHolder keys = new GeneratedKeyHolder();
-        jdbc.sql("insert into members (name, email, password_hash) values (:name, :email, :hash)")
+        jdbc.sql("insert into members (name, email, password_hash, plan_id) values (:name, :email, :hash, (select id from plans where is_default = true limit 1))")
                 .param("name", name)
                 .param("email", email)
                 .param("hash", passwordHash)
@@ -55,6 +55,13 @@ public class MemberRepository {
     }
 
     public Optional<Plan> findPlan(Long id) {
+        if (id == null) {
+            return Optional.empty();
+        }
         return jdbc.sql("select * from plans where id = :id").param("id", id).query(PLAN).optional();
+    }
+
+    public Optional<Plan> findDefaultPlan() {
+        return jdbc.sql("select * from plans where is_default = true limit 1").query(PLAN).optional();
     }
 }

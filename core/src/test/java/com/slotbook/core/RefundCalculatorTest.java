@@ -10,7 +10,7 @@ class RefundCalculatorTest {
     @Test
     void earlyCancellationRefunds90Percent() {
         assertEquals(405.00, RefundCalculator.refundFor(450.00, true), 0.001);
-        assertEquals(299.99, RefundCalculator.refundFor(333.33, true), 0.001);
+        assertEquals(300.00, RefundCalculator.refundFor(333.33, true), 0.001);
     }
 
     @Test

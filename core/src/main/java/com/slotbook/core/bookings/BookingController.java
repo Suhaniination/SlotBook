@@ -1,6 +1,7 @@
 package com.slotbook.core.bookings;
 
 import com.slotbook.contract.BookingResult;
+import com.slotbook.contract.CentreClock;
 import com.slotbook.contract.CurrentMember;
 import com.slotbook.contract.MemberView;
 import com.slotbook.core.slots.SlotDto;
@@ -14,7 +15,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -33,16 +33,16 @@ public class BookingController {
     private final BookingRepository bookings;
     private final SlotRepository slots;
     private final SlotFormatter formatter;
-    private final Clock clock;
+    private final CentreClock centre;
 
     public BookingController(CurrentMember current, BookingService service, BookingRepository bookings,
-                             SlotRepository slots, SlotFormatter formatter, Clock clock) {
+                             SlotRepository slots, SlotFormatter formatter, CentreClock centre) {
         this.current = current;
         this.service = service;
         this.bookings = bookings;
         this.slots = slots;
         this.formatter = formatter;
-        this.clock = clock;
+        this.centre = centre;
     }
 
     @PostMapping("/api/bookings")
@@ -61,7 +61,7 @@ public class BookingController {
         return bookings.forMember(me.id()).stream()
                 .map(b -> {
                     SlotDto slot = slots.find(b.slotId()).map(formatter::toDto).orElseThrow();
-                    LocalDate day = slot.startsAt().atZone(clock.getZone()).toLocalDate();
+                    LocalDate day = slot.startsAt().atZone(centre.zone()).toLocalDate();
                     return new MyBooking(b.id(), b.status(), b.amount(), day, slot);
                 })
                 .sorted((a, b) -> a.slot().startsAt().compareTo(b.slot().startsAt()))
